@@ -105,7 +105,7 @@ class ToDoListViewController: UITableViewController {
         do {
             try contex.save()
         } catch{
-            print("error saving item, \(error)")
+            print("Error saving item, \(error)")
         }
         
         self.tableView.reloadData()
