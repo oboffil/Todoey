@@ -7,26 +7,23 @@
 //
 
 import UIKit
-import CoreData
+import RealmSwift
 
 class ToDoListViewController: UITableViewController {
 
-    var itemArray = [Item]()
+    var todoItems: Results<Item>?
+    let realm = try! Realm()
     
     var selectedCategory : Category? {
         didSet{
             loadItems()
         }
     }
-    // comienza el database
-    let contex = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
-    
+
     
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
-        
-        print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
         
     }
 
@@ -34,18 +31,23 @@ class ToDoListViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         
-        return itemArray.count
+        return todoItems?.count ?? 1
     }
     
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         
         let cell = tableView.dequeueReusableCell(withIdentifier: "ToDoItemCell", for: indexPath)
         
-        let item = itemArray[indexPath.row]
+        if let item = todoItems?[indexPath.row] {
+           
+            cell.textLabel?.text = item.title
+            
+            cell.accessoryType = item.done == true ? .checkmark : .none
         
-        cell.textLabel?.text = item.title
+        } else {
+            cell.textLabel?.text = "No Item added"
+        }
         
-        cell.accessoryType = item.done == true ? .checkmark : .none
         return cell
     }
     
@@ -53,18 +55,20 @@ class ToDoListViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         
-        //print("cell number \(itemArray[indexPath.row])")
+       //Update data
         
-        // Para Borrar datos de la lista y el database
-        
-//        contex.delete(itemArray[indexPath.row])
-//        itemArray.remove(at: indexPath.row)
-        
-        //Para actualizar data
-        //itemArray[indexPath.row].done = !itemArray[indexPath.row].done
-        saveItem()
-        
-        
+        if let item = todoItems?[indexPath.row] {
+            do{
+                try realm.write {
+                    item.done = !item.done
+                }
+            } catch{
+                print("Error saving done status\(error)")
+            }
+            
+        }
+        tableView.reloadData()
+
         tableView.deselectRow(at: indexPath, animated: true)
         
         
@@ -80,14 +84,19 @@ class ToDoListViewController: UITableViewController {
         let action = UIAlertAction(title: "Add Item", style: .default) { (action) in
             //what happen whem you prest
             
-            let newItem = Item(context: self.contex)
-            newItem.done = false
-            newItem.parentCategory = self.selectedCategory
-            newItem.title = textFiel.text!
-            
-            self.itemArray.append(newItem)
-           
-            self.saveItem()
+            if let currentCategory = self.selectedCategory{
+                do{
+                    try self.realm.write {
+                        let newItem = Item()
+                        newItem.title = textFiel.text!
+                        newItem.dateCreated = Date()
+                        currentCategory.items.append(newItem)
+                    }
+                }catch{
+                    print("Error saving new item\(error)")
+                }
+            }
+            self.tableView.reloadData()
         }
         alert.addTextField { (alertTextField) in
             alertTextField.placeholder = "Create new Item"
@@ -100,63 +109,37 @@ class ToDoListViewController: UITableViewController {
     
     //MARK - Model Manupulation Methods
     
-    func saveItem (){
-        
-        do {
-            try contex.save()
-        } catch{
-            print("Error saving item, \(error)")
-        }
-        
-        self.tableView.reloadData()
-    }
     
-    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate: NSPredicate? = nil) {
+    func loadItems() {
         
-        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
-        
-        if let additionalPredicate = predicate {
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [categoryPredicate, additionalPredicate])
-        }else {
-            request.predicate = categoryPredicate
-        }
+        todoItems = selectedCategory?.items.sorted(byKeyPath: "title", ascending: true)
 
-        
-        do {
-            itemArray = try contex.fetch(request)
-        } catch{
-            print("Error fetching data from context \(error)")
-        }
-        
         tableView.reloadData()
     }
-    
 }
 
 //MARK: - Search bar method
 extension ToDoListViewController: UISearchBarDelegate {
-    
+
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
-        //Para leer del database
-        let request : NSFetchRequest<Item> = Item.fetchRequest()
-        //para buscar en el database
-        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+       
+        todoItems = todoItems?.filter("title CONTAINS[cd] %@", searchBar.text!).sorted(byKeyPath: "dateCreated", ascending: true)
         
-        
-        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
-        
-        loadItems(with: request, predicate: predicate)
+        tableView.reloadData()
+
     }
     // volver a la normalidad el search bar cuando no tiene informacion
+    
     func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchBar.text?.count == 0 {
-            
+
             loadItems()
-             // Despues de buscar vuelve a la normal
+            
+            // Despues de buscar vuelve a la normal
             DispatchQueue.main.async {
                 searchBar.resignFirstResponder()
             }
-        
+
         }
     }
 }
